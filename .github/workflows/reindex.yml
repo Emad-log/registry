@@ -1,0 +1,16 @@
+name: reindex
+
+on:
+  push:
+    branches: [main]
+    paths: ["resumes/**"]
+
+jobs:
+  reindex:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poke reindex endpoint
+        run: |
+          curl -sS -X POST "${{ secrets.HIRES_ENDPOINT }}/reindex" \
+            -H "Authorization: Bearer ${{ secrets.HIRES_ADMIN_TOKEN }}" \
+            --max-time 300

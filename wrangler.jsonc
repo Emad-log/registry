@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hires-md",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "ai": { "binding": "AI" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hires-md",
+      "database_id": "0ca63b8b-14a7-4b6a-9b13-ed0968f60c52",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": { "enabled": true },
+  "vars": {
+    "GITHUB_REPO": "hires-md/registry",
+    "GITHUB_BRANCH": "main"
+  }
+}
