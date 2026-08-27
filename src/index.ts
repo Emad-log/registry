@@ -65,17 +65,46 @@ function isAdmin(env: Env, request: Request): boolean {
 
 async function embed(env: Env, text: string): Promise<Float32Array> {
   const res = (await env.AI.run(EMBED_MODEL, { text: [text] })) as {
-    data: number[][];
+    data?: number[][];
+    shape?: number[];
   };
-  return new Float32Array(res.data[0]);
+  // Workers AI may return {data} or a flat array with {shape}
+  if (res.data && Array.isArray(res.data[0])) {
+    return new Float32Array(res.data[0]);
+  }
+  if (res.shape && Array.isArray((res as unknown as { result?: unknown }).result)) {
+    const flat = (res as unknown as { result: number[] }).result;
+    return new Float32Array(flat);
+  }
+  // last resort: object values flattened
+  const alt = res as unknown as Record<string, unknown>;
+  for (const v of Object.values(alt)) {
+    if (Array.isArray(v) && typeof v[0] === "number" && (v as number[]).length >= 256) {
+      return new Float32Array(v as number[]);
+    }
+  }
+  throw new Error("unexpected embedding response shape: " + JSON.stringify(res).slice(0, 200));
 }
 
 function toBlob(vec: Float32Array): Uint8Array {
   return new Uint8Array(vec.buffer.slice(0));
 }
 
-function fromBlob(buf: ArrayBuffer): Float32Array {
-  return new Float32Array(buf.slice(0));
+function fromBlob(value: unknown): Float32Array {
+  // D1 returns BLOB columns as an array of byte numbers, not an ArrayBuffer.
+  let bytes: Uint8Array;
+  if (value instanceof ArrayBuffer) {
+    bytes = new Uint8Array(value);
+  } else if (ArrayBuffer.isView(value)) {
+    bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  } else if (Array.isArray(value)) {
+    bytes = new Uint8Array(value as number[]);
+  } else {
+    throw new Error("unexpected blob type from D1: " + typeof value);
+  }
+  const buf = new ArrayBuffer(bytes.length);
+  new Uint8Array(buf).set(bytes);
+  return new Float32Array(buf);
 }
 
 function cosine(a: Float32Array, b: Float32Array): number {
@@ -118,8 +147,6 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
     score: cosine(qvec, fromBlob(r.embedding)),
   }));
   vecScores.sort((a, b) => b.score - a.score);
-  const vecRank = new Map<string, number>();
-  vecScores.forEach((r, i) => vecRank.set(r.id, i));
 
   // keyword leg
   const kwRank = new Map<string, number>();
@@ -133,14 +160,18 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
     (kw.results ?? []).forEach((r, i) => kwRank.set(r.id, i));
   }
 
-  // RRF fusion
+  // Fusion: semantic cosine is the signal; keyword rank is a small tiebreaker.
+  // (Pure RRF flattens at small corpus sizes — proven wrong in testing.)
   const fused = new Map<string, number>();
-  for (const [id, rank] of vecRank) fused.set(id, (fused.get(id) ?? 0) + 1 / (RRF_K + rank + 1));
-  for (const [id, rank] of kwRank) fused.set(id, (fused.get(id) ?? 0) + 1 / (RRF_K + rank + 1) + 0.001);
+  for (const { id, score } of vecScores) {
+    const kw = kwRank.get(id);
+    const tiebreak = kw !== undefined ? 0.001 / (RRF_K + kw + 1) : 0;
+    fused.set(id, score + tiebreak);
+  }
   const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN);
   if (ranked.length === 0) return [];
 
-  const ids = ranked.map((r) => r.id);
+  const ids = ranked.map(([id]) => id);
   const placeholders = ids.map(() => "?").join(",");
   const docs = await env.DB.prepare(`SELECT id, content FROM resumes WHERE id IN (${placeholders})`)
     .bind(...ids)

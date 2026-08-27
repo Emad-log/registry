@@ -14,7 +14,7 @@
   ],
   "observability": { "enabled": true },
   "vars": {
-    "GITHUB_REPO": "hires-md/registry",
+    "GITHUB_REPO": "Emad-log/registry",
     "GITHUB_BRANCH": "main"
   }
 }
