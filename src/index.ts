@@ -204,6 +204,20 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
   if (!treeRes.ok) throw new Error(`tree fetch failed: ${treeRes.status}`);
   const tree = (await treeRes.json()) as { tree: { path: string; type: string }[] };
   const files = tree.tree.filter((t) => t.type === "blob" && /^resumes\/[^/]+\.md$/.test(t.path));
+  const liveIds = new Set(files.map((f) => f.path.replace(/^resumes\//, "").replace(/\.md$/, "")));
+
+  // delete ghost rows: files removed from the repo must vanish from the index
+  const existing = await env.DB.prepare("SELECT id FROM resumes").all<{ id: string }>();
+  const ghostIds = (existing.results ?? []).map((r) => r.id).filter((id) => !liveIds.has(id));
+  if (ghostIds.length > 0) {
+    const stmts = ghostIds.flatMap((id) => [
+      env.DB.prepare("DELETE FROM resumes WHERE id = ?").bind(id),
+      env.DB.prepare("DELETE FROM resumes_fts WHERE id = ?").bind(id),
+      env.DB.prepare("DELETE FROM emails WHERE id = ?").bind(id),
+      env.DB.prepare("DELETE FROM query_log WHERE resume_id = ?").bind(id),
+    ]);
+    await env.DB.batch(stmts);
+  }
 
   let indexed = 0;
   let emailsFound = 0;
@@ -212,7 +226,16 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
     const cRes = await fetch(`${gh("contents")}/${file.path}?ref=${env.GITHUB_BRANCH}`, { headers });
     if (!cRes.ok) continue;
     const cJson = (await cRes.json()) as { content: string; encoding: string };
-    const raw = cJson.encoding === "base64" ? atob(cJson.content.replace(/\n/g, "")) : cJson.content;
+    let raw: string;
+    if (cJson.encoding === "base64") {
+      // atob() yields latin-1; re-encode bytes as UTF-8 so non-ASCII survives
+      const bin = atob(cJson.content.replace(/\n/g, ""));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      raw = new TextDecoder("utf-8").decode(bytes);
+    } else {
+      raw = cJson.content;
+    }
     if (!raw.trim()) continue;
 
     const id = file.path.replace(/^resumes\//, "").replace(/\.md$/, "");
