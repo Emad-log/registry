@@ -1,40 +1,17 @@
-# hires.md — the product
+# hires.md
 
-A public registry where resumes are plain markdown files in a git repo, queryable by recruiter agents through a search endpoint.
+Your resume is a markdown file. You own it. Agents find you through it.
 
-**Candidates:** add `resumes/your-name.md` → open a PR → merged. That's it.
-**Recruiters:** point your agent at the MCP endpoint. Ask "who's scaled a payments team to 20+?" → get the best-matching raw resumes back. Your agent reads, verifies, picks.
+An open registry of resumes as plain `.md` files — queryable by any recruiter's AI agent. No accounts, no forms, no lock-in. Free.
 
-## For candidates
+## Add your resume (2 ways)
 
-Your resume is one markdown file. Write it however you want — no format, no schema, no form. Structure it in any way that reads well. Two optional conventions that help discovery:
+**If you use git:**
+1. Add `resumes/your-name.md` — write it however you want. It's just markdown.
+2. Open a PR. That's the whole signup.
 
-- a `open to:` line anywhere (roles you're looking for)
-- links to proof (repos, PRs, launches) right next to the claims they back
-
-Rules that exist:
-1. One `.md` file per person, in `/resumes`
-2. **No contact info in the file** — recruiters get your email through the `contact` tool, never from scraping the repo. Add your email via the PR template when you submit, and it's stored server-side only
-3. Delete your resume any time — just delete the file in a PR
-4. Claims are **unverified** — this is an open registry, not an attestation service. Links to proof are yours to add
-
-## For recruiter agents
-
-MCP endpoint: `https://hires.md/mcp`
-
-Three tools:
-
-| tool | what it does |
-|------|--------------|
-| `search(query, top_n)` | Hybrid (semantic + keyword) search over the corpus. Returns ranked raw markdown |
-| `get(id)` | Fetch one full resume by id |
-| `contact(id)` | Returns the candidate's email. Rate-limited and logged |
-
-Get a token: `resumes@hires.md` (free, hand-issued for now).
-
-## For agent users (candidates without an MCP client)
-
-Paste this into any chat agent (ChatGPT, Claude, etc.):
+**If you don't:**
+Paste this into ChatGPT / Claude / any chat agent:
 
 ```text
 I want to create a resume as a markdown file. Ask me questions about my
@@ -44,6 +21,37 @@ and add them next to those claims. When done, output the final file
 ready to submit to github.com/hires-md/registry.
 ```
 
+It interviews you, writes the file, and hands it back. Then [open a PR](../../compare) with it — or email it to `resumes@hires.md`.
+
+## The rules (all of them)
+
+1. **One `.md` file per person**, in `/resumes`
+2. **No contact info in the file.** Your email goes in the PR description (or via email submission) and is stored server-side only. Recruiters get it through an authenticated, rate-limited API call — never from scraping the repo.
+3. **Claims are unverified.** This is an open registry, not an attestation service. Which is why you should:
+4. **Link your proof.** Put the repo, PR, or launch URL right next to the claim it backs. Proof-linked claims rank higher in search results — trust is literally self-interest here.
+5. **Leave any time.** Delete your file in a PR; you're out of the index and the store within minutes.
+
+No format. No schema. No minimum. Write it like a person, not a database row.
+
+## For recruiters (agents)
+
+Point your MCP client at the endpoint with a bearer token (free — `resumes@hires.md`):
+
+- `search(query, top_n)` — hybrid semantic + keyword search, returns ranked raw markdown
+- `get(id)` — one full resume
+- `contact(id)` — the candidate's email (rate-limited, logged)
+
+Your agent reads the resumes and does the judging — that's the design. The endpoint gives you recall and receipts; the reasoning stays in your agent, where you're already paying for it.
+
+## Why this exists
+
+Hiring is going agent-native. When a recruiter's agent goes looking for candidates, it should find *your file* — a file you own, that renders anywhere, that you can fork and take with you — not rows in a closed database.
+
+Resumes are ads, not secrets. The only private thing (your email) never touches the repo.
+
 ## License
 
-Corpus: CC0. Code: MIT.
+- Resumes: CC0 (submit yours under whatever you want, this is our default)
+- Code: MIT
+
+Fork it. If we ever enshittify this, fork it and take the corpus with you — that's the point.

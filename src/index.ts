@@ -10,6 +10,7 @@ export interface Env {
   GITHUB_BRANCH: string;
   ADMIN_TOKEN: string; // secret
   GITHUB_TOKEN: string; // secret — read access to the registry repo (works for private or public)
+  MAIL_FROM?: string; // optional — sender for candidate digest emails (e.g. hello@hires.md once email routing is live)
 }
 
 const EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
@@ -136,11 +137,14 @@ function ftsQuery(query: string): string {
 async function search(env: Env, query: string, topN: number): Promise<unknown[]> {
   topN = Math.min(Math.max(1, topN), MAX_TOP_N);
 
-  // vector leg
+  // vector leg (also carries receipt density for the trust boost)
   const qvec = await embed(env, query);
-  const rows = await env.DB.prepare("SELECT id, embedding FROM resumes WHERE embedding IS NOT NULL").all<{
+  const rows = await env.DB.prepare(
+    "SELECT id, embedding, receipts FROM resumes WHERE embedding IS NOT NULL"
+  ).all<{
     id: string;
     embedding: ArrayBuffer;
+    receipts: number;
   }>();
   const vecScores: { id: string; score: number }[] = (rows.results ?? []).map((r) => ({
     id: r.id,
@@ -162,11 +166,17 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
 
   // Fusion: semantic cosine is the signal; keyword rank is a small tiebreaker.
   // (Pure RRF flattens at small corpus sizes — proven wrong in testing.)
+  // Receipt-density boost: resumes with more proof links rank higher.
+  // Multiplicative, capped at +15% (3+ links), so relevance always dominates.
+  const receiptBoost = new Map<string, number>();
+  for (const r of rows.results ?? []) {
+    receiptBoost.set(r.id, 1 + Math.min(0.15, Math.min(r.receipts, 3) * 0.05));
+  }
   const fused = new Map<string, number>();
   for (const { id, score } of vecScores) {
     const kw = kwRank.get(id);
     const tiebreak = kw !== undefined ? 0.001 / (RRF_K + kw + 1) : 0;
-    fused.set(id, score + tiebreak);
+    fused.set(id, score * (receiptBoost.get(id) ?? 1) + tiebreak);
   }
   const ranked = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, topN);
   if (ranked.length === 0) return [];
@@ -241,6 +251,8 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
     const id = file.path.replace(/^resumes\//, "").replace(/\.md$/, "");
     const { clean, emails } = stripEmails(raw);
     const now = Date.now();
+    // receipt density: count proof links (https links to repos, PRs, talks, posts)
+    const receipts = (clean.match(/https?:\/\/[^\s)]+/g) ?? []).length;
 
     // file any emails found in the file, server-side
     if (emails.length > 0) {
@@ -255,8 +267,8 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
     const vec = await embed(env, clean.slice(0, 8000));
     await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO resumes (id, content, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at"
-      ).bind(id, clean, now),
+        "INSERT INTO resumes (id, content, updated_at, receipts) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at, receipts = excluded.receipts"
+      ).bind(id, clean, now, receipts),
       env.DB.prepare("DELETE FROM resumes_fts WHERE id = ?").bind(id),
       env.DB.prepare("INSERT INTO resumes_fts (id, content) VALUES (?, ?)").bind(id, clean),
       env.DB.prepare("UPDATE resumes SET embedding = ? WHERE id = ?").bind(toBlob(vec), id),
@@ -264,6 +276,28 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
     indexed++;
   }
   return { indexed, emailsFound };
+}
+
+// ---------- mail (cloudflare mail channels) ----------
+
+async function sendMail(env: Env, to: string, subject: string, text: string): Promise<boolean> {
+  if (!env.MAIL_FROM) return false; // not configured — skip silently
+  try {
+    const msg = {
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: env.MAIL_FROM, name: "hires.md" },
+      subject,
+      content: [{ type: "text/plain", value: text }],
+    };
+    const res = await fetch("https://api.mailchannels.com/tx/v1/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(msg),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ---------- MCP ----------
@@ -404,6 +438,62 @@ export default {
         .bind(body.id, body.email)
         .run();
       return json({ ok: true });
+    }
+
+    if (request.method === "GET" && path === "/admin/stats") {
+      // per-resume search appearances in a lookback window (retention email source)
+      if (!isAdmin(env, request)) return json({ error: "unauthorized" }, 401);
+      const url2 = new URL(request.url);
+      const days = Math.min(Math.max(1, Number(url2.searchParams.get("days") ?? 30)), 365);
+      const since = Date.now() - days * 86400_000;
+      const rows = await env.DB.prepare(
+        `SELECT q.resume_id, COUNT(*) AS hits FROM query_log q
+         JOIN resumes r ON r.id = q.resume_id
+         WHERE q.at > ?
+         GROUP BY q.resume_id ORDER BY hits DESC`
+      )
+        .bind(since)
+        .all<{ resume_id: string; hits: number }>();
+      return json({ days, stats: rows.results ?? [] });
+    }
+
+    if (request.method === "POST" && path === "/admin/digest") {
+      // send the monthly "you appeared in N searches" email to every candidate
+      // who appeared at least once and has an email on file.
+      if (!isAdmin(env, request)) return json({ error: "unauthorized" }, 401);
+      const since = Date.now() - 30 * 86400_000;
+      const rows = await env.DB.prepare(
+        `SELECT q.resume_id, COUNT(*) AS hits, e.email
+         FROM query_log q
+         JOIN resumes r ON r.id = q.resume_id
+         JOIN emails e ON e.id = q.resume_id
+         WHERE q.at > ?
+         GROUP BY q.resume_id, e.email
+         ORDER BY hits DESC`
+      )
+        .bind(since)
+        .all<{ resume_id: string; hits: number; email: string }>();
+
+      let sent = 0;
+      let failed = 0;
+      const errors: string[] = [];
+      for (const row of rows.results ?? []) {
+        const subject = `Your resume appeared in ${row.hits} search${row.hits === 1 ? "" : "es"} this month`;
+        const text =
+          `Hi!\n\n` +
+          `Your resume in the hires.md registry came back in ${row.hits} recruiter search${row.hits === 1 ? "" : "es"} over the last 30 days.\n\n` +
+          `Recruiters' agents find candidates through the search endpoint — appearing in results is how you get contacted. If your numbers look low, adding proof links (repos, PRs, launches) next to your claims boosts how you rank.\n\n` +
+          `You can update your resume any time: edit your .md file and open a PR.\n\n` +
+          `— hires.md\n` +
+          (env.MAIL_FROM ? `` : ``);
+        const ok = await sendMail(env, row.email, subject, text);
+        if (ok) sent++;
+        else {
+          failed++;
+          errors.push(row.resume_id);
+        }
+      }
+      return json({ sent, failed, errors });
     }
 
     // token-authed API surface
