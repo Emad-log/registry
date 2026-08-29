@@ -18,7 +18,7 @@ I want to create a resume as a markdown file. Ask me questions about my
 work history, skills, and impact, then write a clean markdown resume.
 Ask me for links that prove my biggest claims (repos, PRs, launches)
 and add them next to those claims. When done, output the final file
-ready to submit to github.com/hires-md/registry.
+ready to submit to the hires.md registry.
 ```
 
 It interviews you, writes the file, and hands it back. Then [open a PR](../../compare) with it — or email it to `resumes@hires.md`.
