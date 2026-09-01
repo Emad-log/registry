@@ -31,7 +31,11 @@ jobs:
               for (const f of files.data) {
                 if (f.status === 'added') added.push(f.filename);
                 else if (f.status === 'modified') modified.push(f.filename);
-                else if (f.status === 'deleted') deleted.push(f.filename);
+                else if (f.status === 'deleted' || f.status === 'removed') deleted.push(f.filename);
+                else if (f.status === 'renamed') {
+                  added.push(f.filename);
+                  deleted.push(f.previous_filename || f.filename);
+                }
                 per_file[f.filename] = f.status;
               }
               page++;
