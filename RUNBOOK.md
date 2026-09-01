@@ -1,15 +1,15 @@
-# hires.md — domain day runbook
+# hires.md - domain day runbook
 
 Everything is built, deployed, and tested. This runs the moment you own hires.md.
 
 ## What's live right now
 
 - **Worker:** https://hires-md.hires-md.workers.dev (health, search, get, contact, MCP, reindex, admin endpoints)
-- **D1:** `hires-md` (id `0ca63b8b-14a7-4b6a-9b13-ed0968f60c52`) — 5 seed resumes indexed, embeddings working
-- **Repo:** github.com/Emad-log/registry (PRIVATE — your public-GitHub-is-Iolit-only rule; flip when ready)
+- **D1:** `hires-md` (id `0ca63b8b-14a7-4b6a-9b13-ed0968f60c52`) - 5 seed resumes indexed, embeddings working
+- **Repo:** github.com/Emad-log/registry (PRIVATE - your public-GitHub-is-Iolit-only rule; flip when ready)
 - **GitHub Action:** auto-reindex on merge to `resumes/**` (secrets `HIRES_ENDPOINT` + `HIRES_ADMIN_TOKEN` set)
 - **Tokens:** in vault (`hires-md-tokens.asc`, `workers-deploy-token.asc`); PAT-backed deploys via `~/.git-pat`
-- **Search quality:** verified — right candidate ranks #1 with clear margin on every test query
+- **Search quality:** verified - right candidate ranks #1 with clear margin on every test query
 
 ## Day-you-buy-the-domain (3 commands)
 
@@ -38,8 +38,8 @@ Email routing (resumes@hires.md → gmail) is a Cloudflare dashboard toggle, sam
 
 ## Known limits (v1, deliberate)
 
-- No auth flow for recruiter tokens — hand-issued, as planned
-- Query log exists (`query_log` table) but the monthly "you appeared in N searches" email isn't wired — cron or manual, later
+- No auth flow for recruiter tokens - hand-issued, as planned
+- Query log exists (`query_log` table) but the monthly "you appeared in N searches" email isn't wired - cron or manual, later
 - README example emails (`maya@example.dev` etc.) are fake seeds
 - Repo private until you say public
 
