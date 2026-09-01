@@ -29,7 +29,7 @@ It interviews you, writes the file, and hands it back. Then [open a PR](../../co
 2. **No contact info in the file.** Your email goes in the PR description (or via email submission) and is stored server-side only. Recruiters get it through an authenticated, rate-limited API call - never from scraping the repo.
 3. **Claims are unverified.** This is an open registry, not an attestation service. Which is why you should:
 4. **Link your proof.** Put the repo, PR, or launch URL right next to the claim it backs. Proof-linked claims rank higher in search results - trust is literally self-interest here.
-5. **Leave any time.** Delete your file in a PR; you're out of the index and the store within minutes.
+5. **Leave any time.** Delete your file in a PR; you're out of the index and the store within minutes. Note: deleting removes you from the index and the live repo, but public git history retains past versions. Use an email you don't mind being public.
 
 No format. No schema. No minimum. Write it like a person, not a database row.
 
