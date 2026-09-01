@@ -1,5 +1,5 @@
 /**
- * hires.md — agent-native resume registry
+ * hires.md - agent-native resume registry
  * D1 + Workers AI hybrid search, MCP endpoint, server-side contact.
  */
 
@@ -9,8 +9,8 @@ export interface Env {
   GITHUB_REPO: string; // owner/repo
   GITHUB_BRANCH: string;
   ADMIN_TOKEN: string; // secret
-  GITHUB_TOKEN: string; // secret — read access to the registry repo (works for private or public)
-  MAIL_FROM?: string; // optional — sender for candidate digest emails (e.g. hello@hires.md once email routing is live)
+  GITHUB_TOKEN: string; // secret - read access to the registry repo (works for private or public)
+  MAIL_FROM?: string; // optional - sender for candidate digest emails (e.g. hello@hires.md once email routing is live)
 }
 
 const EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
@@ -21,7 +21,7 @@ const CONTACT_HOURLY_LIMIT = 20;
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
-// ---------- helpers ----------
+// helpers
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -62,7 +62,7 @@ function isAdmin(env: Env, request: Request): boolean {
   return h === `Bearer ${env.ADMIN_TOKEN}`;
 }
 
-// ---------- embeddings ----------
+// embeddings
 
 async function embed(env: Env, text: string): Promise<Float32Array> {
   const res = (await env.AI.run(EMBED_MODEL, { text: [text] })) as {
@@ -121,7 +121,7 @@ function cosine(a: Float32Array, b: Float32Array): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-// ---------- search ----------
+// search
 
 function ftsQuery(query: string): string {
   const terms = query
@@ -165,7 +165,7 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
   }
 
   // Fusion: semantic cosine is the signal; keyword rank is a small tiebreaker.
-  // (Pure RRF flattens at small corpus sizes — proven wrong in testing.)
+  // (Pure RRF flattens at small corpus sizes - proven wrong in testing.)
   // Receipt-density boost: resumes with more proof links rank higher.
   // Multiplicative, capped at +15% (3+ links), so relevance always dominates.
   const receiptBoost = new Map<string, number>();
@@ -199,7 +199,7 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
   return ranked.map(([id, score]) => ({ id, score: Number(score.toFixed(6)), resume: stripEmails(byId.get(id) ?? "").clean }));
 }
 
-// ---------- reindex ----------
+// reindex
 
 async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number }> {
   const gh = (path: string) =>
@@ -278,10 +278,10 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
   return { indexed, emailsFound };
 }
 
-// ---------- mail (cloudflare mail channels) ----------
+// mail (cloudflare mail channels)
 
 async function sendMail(env: Env, to: string, subject: string, text: string): Promise<boolean> {
-  if (!env.MAIL_FROM) return false; // not configured — skip silently
+  if (!env.MAIL_FROM) return false; // not configured - skip silently
   try {
     const msg = {
       personalizations: [{ to: [{ email: to }] }],
@@ -300,7 +300,7 @@ async function sendMail(env: Env, to: string, subject: string, text: string): Pr
   }
 }
 
-// ---------- MCP ----------
+// MCP
 
 const MCP_TOOLS = [
   {
@@ -372,7 +372,7 @@ async function handleMcp(env: Env, body: { id: number | string; method: string; 
   }
 }
 
-// ---------- contact ----------
+// contact
 
 async function lookupEmail(env: Env, id: string): Promise<string | null> {
   const row = await env.DB.prepare("SELECT email FROM emails WHERE id = ?").bind(id).first<{ email: string }>();
@@ -397,7 +397,7 @@ async function contact(env: Env, request: Request, tokenLabel: string, id: strin
   return json({ id, email });
 }
 
-// ---------- router ----------
+// router
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -482,9 +482,9 @@ export default {
         const text =
           `Hi!\n\n` +
           `Your resume in the hires.md registry came back in ${row.hits} recruiter search${row.hits === 1 ? "" : "es"} over the last 30 days.\n\n` +
-          `Recruiters' agents find candidates through the search endpoint — appearing in results is how you get contacted. If your numbers look low, adding proof links (repos, PRs, launches) next to your claims boosts how you rank.\n\n` +
+          `Recruiters' agents find candidates through the search endpoint - appearing in results is how you get contacted. If your numbers look low, adding proof links (repos, PRs, launches) next to your claims boosts how you rank.\n\n` +
           `You can update your resume any time: edit your .md file and open a PR.\n\n` +
-          `— hires.md\n` +
+          `- hires.md\n` +
           (env.MAIL_FROM ? `` : ``);
         const ok = await sendMail(env, row.email, subject, text);
         if (ok) sent++;
