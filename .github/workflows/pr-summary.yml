@@ -1,0 +1,75 @@
+name: pr-summary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment a plain-English change summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const added = [], modified = [], deleted = [];
+            const per_file = {};
+            let page = 1;
+            while (true) {
+              const files = await github.rest.pulls.listFiles({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                per_page: 100,
+                page,
+              });
+              if (files.data.length === 0) break;
+              for (const f of files.data) {
+                if (f.status === 'added') added.push(f.filename);
+                else if (f.status === 'modified') modified.push(f.filename);
+                else if (f.status === 'deleted') deleted.push(f.filename);
+                per_file[f.filename] = f.status;
+              }
+              page++;
+            }
+            const lines = ['**Change summary for this PR**', ''];
+            const list = (arr, verb) => arr.length
+              ? arr.map(f => `- ${verb}: \`${f}\``).join('\n')
+              : `- none`;
+            lines.push(`**Adds**\n${list(added, 'add')}`, '',
+                       `**Modifies**\n${list(modified, 'modify')}`, '',
+                       `**Deletes**\n${list(deleted, 'DELETE')}`, '');
+            const resumeFiles = Object.keys(per_file).filter(f => /^resumes\//.test(f));
+            if (deleted.length > 0) {
+              lines.push('⚠️ **This PR deletes file(s). Review carefully before merging.**');
+            }
+            if (resumeFiles.length > 1) {
+              lines.push(`⚠️ **Touches ${resumeFiles.length} resume files. One resume per person per PR is the norm; confirm this is intended.**`);
+            }
+            const body = lines.join('\n');
+            const existing = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const marker = '**Change summary for this PR**';
+            const prev = existing.data.find(c => c.body && c.body.startsWith(marker));
+            if (prev) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: prev.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
