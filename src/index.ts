@@ -10,7 +10,8 @@ export interface Env {
   GITHUB_BRANCH: string;
   ADMIN_TOKEN: string; // secret
   GITHUB_TOKEN: string; // secret - read access to the registry repo (works for private or public)
-  MAIL_FROM?: string; // optional - sender for candidate digest emails (e.g. hello@hires.md once email routing is live)
+  RESEND_API_KEY?: string; // optional - resend key for digest emails
+  MAIL_FROM?: string; // optional - sender for candidate digest emails
 }
 
 const EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
@@ -278,23 +279,25 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
   return { indexed, emailsFound };
 }
 
-// mail (cloudflare mail channels)
+// mail (resend)
 
 async function sendMail(env: Env, to: string, subject: string, text: string): Promise<boolean> {
-  if (!env.MAIL_FROM) return false; // not configured - skip silently
+  if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false;
   try {
-    const msg = {
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: env.MAIL_FROM, name: "hires.md" },
-      subject,
-      content: [{ type: "text/plain", value: text }],
-    };
-    const res = await fetch("https://api.mailchannels.com/tx/v1/send", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(msg),
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: `hires.md <${env.MAIL_FROM}>`,
+        to: [to],
+        subject,
+        text,
+      }),
     });
-    return res.ok;
+    return res.status === 200;
   } catch {
     return false;
   }
