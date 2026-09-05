@@ -40,9 +40,9 @@ test('GitHub boundary refuses foreign paths and redirects without leaking creden
     await assert.rejects(() => core.github(env, route));
   }
   assert.equal(calls.length, 0);
-  const result = await core.github(env, '/git/ref/heads/main');
-  assert.equal(result.status, 302);
-  assert.equal(calls[0].init.redirect, 'error');
+  const result = core.github(env, '/git/ref/heads/main');
+  await assert.rejects(() => result, error => error.code === 'github_unavailable');
+  assert.equal(calls[0].init.redirect, 'manual');
   assert.equal(calls[0].url, 'https://api.github.com/repos/fixture/registry/git/ref/heads/main');
   assert.equal(await core.sha256('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   const response = core.json({ ok: true });

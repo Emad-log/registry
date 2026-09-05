@@ -346,7 +346,7 @@ export async function submit(env: Env, args: Record<string, unknown>, _requester
   }
   try {
     const response = await fetch("https://api.resend.com/emails", {
-      method: "POST", redirect: "error", signal: AbortSignal.timeout(10000),
+      method: "POST", redirect: "manual", signal: AbortSignal.timeout(10000),
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json", "Idempotency-Key": requestId },
       body: JSON.stringify({ from: env.MAIL_FROM, to: [args.email], subject: "Verify your hires.md request",
         text: `Action: ${args.action ?? "upsert"} for ${args.name}\nRequest ${requestId}\nVerification code: ${code}\nExpires in 15 minutes. Do not share this code. Confirm only a request you initiated. Upsert publishes the submitted resume on public GitHub for review and shares this email through the contact tool after publication. Remove immediately hides the registry contact and requests public file deletion, not Git history deletion. This verifies control of your email, not your identity.` }),
