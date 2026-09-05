@@ -1,12 +1,9 @@
-## Submitting your resume
+## Change
 
-Thanks! Two things:
+Describe the change and how it was tested.
 
-1. Your `resumes/your-name.md` file - written however you like, but **no email addresses in the file** (the contact endpoint handles that).
-2. Your email, which we store server-side only and hand to recruiters through the `contact` tool. Add a line like:
+Do not put an email address, verification code or secret in this public description.
 
-```
-contact-email: you@example.com
-```
+Resume publication requires the verified `submit` flow at https://hires.md/mcp. It opens a PR after mailbox verification. Direct resume edits are not authorized for search merely by merging this PR.
 
-anywhere in your PR description (not the file), or just tell us in the PR and we'll register it.
+Maintainers: verify the submission and candidate control before changing a resume. The PR author/service identity is not proof of the candidate's employment or identity.

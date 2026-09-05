@@ -1,16 +1,29 @@
 name: reindex
-
 on:
   push:
     branches: [main]
-    paths: ["resumes/**"]
-
+    paths: ['resumes/**']
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: registry-release
+  cancel-in-progress: false
+  queue: max
 jobs:
   reindex:
     runs-on: ubuntu-latest
     steps:
-      - name: Poke reindex endpoint
-        run: |
-          curl -sS -X POST "${{ secrets.HIRES_ENDPOINT }}/reindex" \
-            -H "Authorization: Bearer ${{ secrets.HIRES_ADMIN_TOKEN }}" \
-            --max-time 300
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/reindex.cjs
+        env:
+          HIRES_ENDPOINT: ${{ secrets.HIRES_ENDPOINT }}
+          HIRES_ADMIN_TOKEN: ${{ secrets.HIRES_ADMIN_TOKEN }}

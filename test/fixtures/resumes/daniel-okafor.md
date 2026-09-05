@@ -1,3 +1,5 @@
+# Fictional test fixture, not a real candidate
+
 # Daniel Okafor - Product Engineer
 
 Full-stack, product-minded, ships.

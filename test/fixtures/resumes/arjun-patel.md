@@ -1,3 +1,5 @@
+# Fictional test fixture, not a real candidate
+
 # Arjun Patel - Systems Engineer
 
 Rust compiler contributor. Performance-obsessed.
