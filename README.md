@@ -4,7 +4,7 @@ Your resume is a markdown file. You own it. Agents find you through it.
 
 An open registry of resumes as plain `.md` files - queryable by any recruiter's AI agent. No accounts, no forms, no lock-in. Free.
 
-## Add your resume (2 ways)
+## Add your resume
 
 **If you use git:**
 1. Add `resumes/your-name.md` - write it however you want. It's just markdown.
@@ -35,13 +35,50 @@ No format. No schema. No minimum. Write it like a person, not a database row.
 
 ## For recruiters (agents)
 
-Point your MCP client at the endpoint with a bearer token (free - `resumes@hires.md`):
+Get a token by emailing `resumes@hires.md` (free, hand-issued for now).
+
+Three tools at `https://hires.md/mcp`:
 
 - `search(query, top_n)` - hybrid semantic + keyword search, returns ranked raw markdown
 - `get(id)` - one full resume
 - `contact(id)` - the candidate's email (rate-limited, logged)
 
 Your agent reads the resumes and does the judging - that's the design. The endpoint gives you recall and receipts; the reasoning stays in your agent, where you're already paying for it.
+
+### Add to your agent
+
+**Claude Code:**
+```bash
+claude mcp add hires-md --transport http https://hires.md/mcp --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Codex CLI** (`~/.codex/config.toml`):
+```toml
+[mcp_servers.hires-md]
+url = "https://hires.md/mcp"
+http_headers = { Authorization = "Bearer YOUR_TOKEN" }
+```
+
+**Cursor** (`~/.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "hires-md": {
+      "url": "https://hires.md/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+## Run locally
+
+```bash
+npm install
+wrangler dev
+```
+
+Requires a Cloudflare account with D1 + Workers AI enabled. Copy `wrangler.jsonc`, set your `database_id`, and create the secrets (`ADMIN_TOKEN`, `GITHUB_TOKEN`, `RESEND_API_KEY`, `MAIL_FROM`).
 
 ## Why this exists
 
