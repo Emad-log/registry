@@ -17,6 +17,8 @@ const MAX_TOP_N = 30;
 const CONTACT_HOURLY_LIMIT = 20;
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+const CONTACT_EMAIL_RE =
+  /^\s*(?:[-*+]\s*)?\*{0,2}contact-email\*{0,2}\s*:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/im;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -25,10 +27,15 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function stripEmails(text: string): { clean: string; emails: string[] } {
-  const emails = text.match(EMAIL_RE) ?? [];
-  const clean = text.replace(EMAIL_RE, "[contact via endpoint]");
-  return { clean, emails: [...new Set(emails)] };
+function stripEmails(text: string): string {
+  return text.replace(EMAIL_RE, "[contact via endpoint]");
+}
+
+// Only an address the candidate labelled counts as theirs. Any other address in the
+// file could be a reference or a former client, so it gets stripped but never stored.
+function contactEmail(text: string): string | null {
+  const m = text.match(CONTACT_EMAIL_RE);
+  return m ? m[1] : null;
 }
 
 function randomToken(): string {
@@ -180,7 +187,7 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
   );
   await env.DB.batch(stmts);
 
-  return ranked.map(([id, score]) => ({ id, score: Number(score.toFixed(6)), resume: stripEmails(byId.get(id) ?? "").clean }));
+  return ranked.map(([id, score]) => ({ id, score: Number(score.toFixed(6)), resume: stripEmails(byId.get(id) ?? "") }));
 }
 
 async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number }> {
@@ -230,15 +237,18 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
     if (!raw.trim()) continue;
 
     const id = file.path.replace(/^resumes\//, "").replace(/\.md$/, "");
-    const { clean, emails } = stripEmails(raw);
+    const clean = stripEmails(raw);
     const now = Date.now();
     const receipts = (clean.match(/https?:\/\/[^\s)]+/g) ?? []).length;
 
-    if (emails.length > 0) {
+    // Absence never deletes: most emails arrive through the PR description and /admin/email,
+    // and those must survive a reindex.
+    const email = contactEmail(raw);
+    if (email) {
       await env.DB.prepare(
         "INSERT INTO emails (id, email) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email"
       )
-        .bind(id, emails[0])
+        .bind(id, email)
         .run();
       emailsFound++;
     }
@@ -354,7 +364,7 @@ async function handleMcp(
           .bind(String(args.id ?? ""))
           .first<{ id: string; content: string }>();
         if (!row) return textOut(`No resume with id '${args.id}'`, true);
-        return textOut(stripEmails(row.content).clean);
+        return textOut(stripEmails(row.content));
       }
       if (name === "contact") {
         const res = await contact(env, tokenLabel, String(args.id ?? ""));
@@ -507,7 +517,7 @@ export default {
         .bind(String(body.id ?? ""))
         .first<{ id: string; content: string }>();
       if (!row) return json({ error: "not found" }, 404);
-      return json({ id: row.id, resume: stripEmails(row.content).clean });
+      return json({ id: row.id, resume: stripEmails(row.content) });
     }
 
     if (request.method === "POST" && path === "/contact") {
