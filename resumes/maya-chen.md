@@ -1,4 +1,4 @@
-# Maya Chen — Staff Engineer
+# Maya Chen - Staff Engineer
 
 ## Currently
 Staff Engineer at Stripe (2023–now), Payments Infrastructure.

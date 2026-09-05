@@ -1,4 +1,4 @@
-# Arjun Patel — Systems Engineer
+# Arjun Patel - Systems Engineer
 
 Rust compiler contributor. Performance-obsessed.
 

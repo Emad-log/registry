@@ -1,4 +1,4 @@
-# Sofia Reyes — ML Engineer
+# Sofia Reyes - ML Engineer
 
 I make models cheap enough to ship.
 

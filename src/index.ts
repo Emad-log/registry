@@ -1,28 +1,22 @@
-/**
- * hires.md - agent-native resume registry
- * D1 + Workers AI hybrid search, MCP endpoint, server-side contact.
- */
+// hires.md worker: D1 + Workers AI search, MCP endpoint, server-side contact.
 
 export interface Env {
   AI: Ai;
   DB: D1Database;
-  GITHUB_REPO: string; // owner/repo
+  GITHUB_REPO: string;
   GITHUB_BRANCH: string;
-  ADMIN_TOKEN: string; // secret
-  GITHUB_TOKEN: string; // secret - read access to the registry repo (works for private or public)
-  RESEND_API_KEY?: string; // optional - resend key for digest emails
-  MAIL_FROM?: string; // optional - sender for candidate digest emails
+  ADMIN_TOKEN: string;
+  GITHUB_TOKEN: string;
+  RESEND_API_KEY?: string;
+  MAIL_FROM?: string;
 }
 
 const EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
-const EMBED_DIMS = 768;
 const RRF_K = 60;
 const MAX_TOP_N = 30;
 const CONTACT_HOURLY_LIMIT = 20;
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-
-// helpers
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -62,8 +56,6 @@ function isAdmin(env: Env, request: Request): boolean {
   const h = request.headers.get("authorization") ?? "";
   return h === `Bearer ${env.ADMIN_TOKEN}`;
 }
-
-// embeddings
 
 async function embed(env: Env, text: string): Promise<Float32Array> {
   const res = (await env.AI.run(EMBED_MODEL, { text: [text] })) as {
@@ -122,8 +114,6 @@ function cosine(a: Float32Array, b: Float32Array): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-// search
-
 function ftsQuery(query: string): string {
   const terms = query
     .toLowerCase()
@@ -138,7 +128,6 @@ function ftsQuery(query: string): string {
 async function search(env: Env, query: string, topN: number): Promise<unknown[]> {
   topN = Math.min(Math.max(1, topN), MAX_TOP_N);
 
-  // vector leg (also carries receipt density for the trust boost)
   const qvec = await embed(env, query);
   const rows = await env.DB.prepare(
     "SELECT id, embedding, receipts FROM resumes WHERE embedding IS NOT NULL"
@@ -153,7 +142,6 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
   }));
   vecScores.sort((a, b) => b.score - a.score);
 
-  // keyword leg
   const kwRank = new Map<string, number>();
   const fq = ftsQuery(query);
   if (fq) {
@@ -165,10 +153,7 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
     (kw.results ?? []).forEach((r, i) => kwRank.set(r.id, i));
   }
 
-  // Fusion: semantic cosine is the signal; keyword rank is a small tiebreaker.
-  // (Pure RRF flattens at small corpus sizes - proven wrong in testing.)
-  // Receipt-density boost: resumes with more proof links rank higher.
-  // Multiplicative, capped at +15% (3+ links), so relevance always dominates.
+  // Fusion: cosine dominates; keyword rank is a tiebreaker; receipt density is a capped multiplicative boost.
   const receiptBoost = new Map<string, number>();
   for (const r of rows.results ?? []) {
     receiptBoost.set(r.id, 1 + Math.min(0.15, Math.min(r.receipts, 3) * 0.05));
@@ -189,18 +174,14 @@ async function search(env: Env, query: string, topN: number): Promise<unknown[]>
     .all<{ id: string; content: string }>();
   const byId = new Map((docs.results ?? []).map((d) => [d.id, d.content]));
 
-  // log appearances (for the candidate monthly email)
   const now = Date.now();
   const stmts = ids.map((id) =>
     env.DB.prepare("INSERT INTO query_log (resume_id, at) VALUES (?, ?)").bind(id, now)
   );
   await env.DB.batch(stmts);
 
-  // defense in depth: strip emails at response time too
   return ranked.map(([id, score]) => ({ id, score: Number(score.toFixed(6)), resume: stripEmails(byId.get(id) ?? "").clean }));
 }
-
-// reindex
 
 async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number }> {
   const gh = (path: string) =>
@@ -217,7 +198,6 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
   const files = tree.tree.filter((t) => t.type === "blob" && /^resumes\/[^/]+\.md$/.test(t.path));
   const liveIds = new Set(files.map((f) => f.path.replace(/^resumes\//, "").replace(/\.md$/, "")));
 
-  // delete ghost rows: files removed from the repo must vanish from the index
   const existing = await env.DB.prepare("SELECT id FROM resumes").all<{ id: string }>();
   const ghostIds = (existing.results ?? []).map((r) => r.id).filter((id) => !liveIds.has(id));
   if (ghostIds.length > 0) {
@@ -252,10 +232,8 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
     const id = file.path.replace(/^resumes\//, "").replace(/\.md$/, "");
     const { clean, emails } = stripEmails(raw);
     const now = Date.now();
-    // receipt density: count proof links (https links to repos, PRs, talks, posts)
     const receipts = (clean.match(/https?:\/\/[^\s)]+/g) ?? []).length;
 
-    // file any emails found in the file, server-side
     if (emails.length > 0) {
       await env.DB.prepare(
         "INSERT INTO emails (id, email) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET email = excluded.email"
@@ -279,8 +257,6 @@ async function reindex(env: Env): Promise<{ indexed: number; emailsFound: number
   return { indexed, emailsFound };
 }
 
-// mail (resend)
-
 async function sendMail(env: Env, to: string, subject: string, text: string): Promise<boolean> {
   if (!env.RESEND_API_KEY || !env.MAIL_FROM) return false;
   try {
@@ -302,8 +278,6 @@ async function sendMail(env: Env, to: string, subject: string, text: string): Pr
     return false;
   }
 }
-
-// MCP
 
 const MCP_TOOLS = [
   {
@@ -375,8 +349,6 @@ async function handleMcp(env: Env, body: { id: number | string; method: string; 
   }
 }
 
-// contact
-
 async function lookupEmail(env: Env, id: string): Promise<string | null> {
   const row = await env.DB.prepare("SELECT email FROM emails WHERE id = ?").bind(id).first<{ email: string }>();
   return row?.email ?? null;
@@ -399,8 +371,6 @@ async function contact(env: Env, request: Request, tokenLabel: string, id: strin
     .run();
   return json({ id, email });
 }
-
-// router
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -444,7 +414,6 @@ export default {
     }
 
     if (request.method === "GET" && path === "/admin/stats") {
-      // per-resume search appearances in a lookback window (retention email source)
       if (!isAdmin(env, request)) return json({ error: "unauthorized" }, 401);
       const url2 = new URL(request.url);
       const days = Math.min(Math.max(1, Number(url2.searchParams.get("days") ?? 30)), 365);
@@ -461,8 +430,6 @@ export default {
     }
 
     if (request.method === "POST" && path === "/admin/digest") {
-      // send the monthly "you appeared in N searches" email to every candidate
-      // who appeared at least once and has an email on file.
       if (!isAdmin(env, request)) return json({ error: "unauthorized" }, 401);
       const since = Date.now() - 30 * 86400_000;
       const rows = await env.DB.prepare(

@@ -1,4 +1,4 @@
-# Daniel Okafor — Product Engineer
+# Daniel Okafor - Product Engineer
 
 Full-stack, product-minded, ships.
 
