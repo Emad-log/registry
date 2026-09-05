@@ -314,19 +314,37 @@ const MCP_TOOLS = [
   },
 ] as const;
 
-async function handleMcp(env: Env, body: { id: number | string; method: string; params?: unknown }): Promise<unknown> {
+const MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
+
+class RpcError extends Error {
+  constructor(readonly code: number, message: string) {
+    super(message);
+  }
+}
+
+async function handleMcp(
+  env: Env,
+  body: { method: string; params?: unknown },
+  tokenLabel: string
+): Promise<unknown> {
   switch (body.method) {
-    case "initialize":
+    case "initialize": {
+      // Answer in the client's protocol version when we speak it, otherwise our newest.
+      const asked = (body.params as { protocolVersion?: string } | undefined)?.protocolVersion;
+      const version = asked && MCP_PROTOCOL_VERSIONS.includes(asked) ? asked : MCP_PROTOCOL_VERSIONS[0];
       return {
-        protocolVersion: "2025-06-18",
+        protocolVersion: version,
         capabilities: { tools: {} },
         serverInfo: { name: "hires-md", version: "1.0.0" },
       };
+    }
+    case "ping":
+      return {};
     case "tools/list":
       return { tools: MCP_TOOLS };
     case "tools/call": {
       const { name, arguments: args } = body.params as { name: string; arguments: Record<string, unknown> };
-      const textOut = (text: string) => ({ content: [{ type: "text", text }] });
+      const textOut = (text: string, isError = false) => ({ content: [{ type: "text", text }], isError });
       if (name === "search") {
         const results = await search(env, String(args.query ?? ""), Number(args.top_n ?? 10));
         return textOut(JSON.stringify(results, null, 2));
@@ -335,17 +353,18 @@ async function handleMcp(env: Env, body: { id: number | string; method: string; 
         const row = await env.DB.prepare("SELECT id, content FROM resumes WHERE id = ?")
           .bind(String(args.id ?? ""))
           .first<{ id: string; content: string }>();
-        if (!row) return textOut(`No resume with id '${args.id}'`);
+        if (!row) return textOut(`No resume with id '${args.id}'`, true);
         return textOut(stripEmails(row.content).clean);
       }
       if (name === "contact") {
-        const email = await lookupEmail(env, String(args.id ?? ""));
-        return textOut(email ? JSON.stringify({ id: args.id, email }) : `No email on file for '${args.id}'`);
+        const res = await contact(env, tokenLabel, String(args.id ?? ""));
+        if (!res.ok) return textOut(res.error, true);
+        return textOut(JSON.stringify({ id: res.id, email: res.email }));
       }
-      throw new Error(`Unknown tool: ${name}`);
+      throw new RpcError(-32602, `Unknown tool: ${name}`);
     }
     default:
-      throw new Error(`Unknown method: ${body.method}`);
+      throw new RpcError(-32601, `Unknown method: ${body.method}`);
   }
 }
 
@@ -354,7 +373,12 @@ async function lookupEmail(env: Env, id: string): Promise<string | null> {
   return row?.email ?? null;
 }
 
-async function contact(env: Env, request: Request, tokenLabel: string, id: string): Promise<Response> {
+type ContactResult =
+  | { ok: true; id: string; email: string }
+  | { ok: false; status: number; error: string };
+
+// Used by both the /contact route and the MCP contact tool, so both are rate limited and logged.
+async function contact(env: Env, tokenLabel: string, id: string): Promise<ContactResult> {
   const hourAgo = Date.now() - 3600_000;
   const used = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM contact_log WHERE token_label = ? AND at > ?"
@@ -362,14 +386,14 @@ async function contact(env: Env, request: Request, tokenLabel: string, id: strin
     .bind(tokenLabel, hourAgo)
     .first<{ n: number }>();
   if ((used?.n ?? 0) >= CONTACT_HOURLY_LIMIT) {
-    return json({ error: "hourly contact limit reached" }, 429);
+    return { ok: false, status: 429, error: "hourly contact limit reached" };
   }
   const email = await lookupEmail(env, id);
-  if (!email) return json({ error: `no email on file for '${id}'` }, 404);
+  if (!email) return { ok: false, status: 404, error: `no email on file for '${id}'` };
   await env.DB.prepare("INSERT INTO contact_log (token_label, resume_id, at) VALUES (?, ?, ?)")
     .bind(tokenLabel, id, Date.now())
     .run();
-  return json({ id, email });
+  return { ok: true, id, email };
 }
 
 export default {
@@ -488,17 +512,27 @@ export default {
 
     if (request.method === "POST" && path === "/contact") {
       const body = (await request.json().catch(() => ({}))) as { id?: string };
-      return contact(env, request, auth.label, String(body.id ?? ""));
+      const res = await contact(env, auth.label, String(body.id ?? ""));
+      if (!res.ok) return json({ error: res.error }, res.status);
+      return json({ id: res.id, email: res.email });
     }
 
-    if (request.method === "POST" && path === "/mcp") {
-      const body = (await request.json().catch(() => null)) as { id: number; method: string; params?: unknown } | null;
+    if (path === "/mcp") {
+      // There is no server-initiated stream, so the SSE GET and the session DELETE do not apply.
+      if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+      const body = (await request.json().catch(() => null)) as
+        | { id?: number | string; method: string; params?: unknown }
+        | null;
       if (!body?.method) return json({ error: "bad jsonrpc request" }, 400);
+      // A notification has no id. It gets an empty 202, never a response object.
+      if (body.id === undefined || body.id === null) return new Response(null, { status: 202 });
       try {
-        const result = await handleMcp(env, body);
+        const result = await handleMcp(env, body, auth.label);
         return json({ jsonrpc: "2.0", id: body.id, result });
       } catch (e) {
-        return json({ jsonrpc: "2.0", id: body.id, error: { code: -32603, message: String(e) } });
+        const code = e instanceof RpcError ? e.code : -32603;
+        const message = e instanceof Error ? e.message : String(e);
+        return json({ jsonrpc: "2.0", id: body.id, error: { code, message } });
       }
     }
 
