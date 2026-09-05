@@ -13,6 +13,7 @@
     }
   ],
   "observability": { "enabled": true },
+  "triggers": { "crons": ["23 * * * *"] },
   "vars": {
     "GITHUB_REPO": "Emad-log/registry",
     "GITHUB_BRANCH": "main"

@@ -1,3 +1,5 @@
+# Fictional test fixture, not a real candidate
+
 # Sofia Reyes - ML Engineer
 
 I make models cheap enough to ship.
