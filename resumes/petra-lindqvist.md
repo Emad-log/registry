@@ -1,4 +1,4 @@
-# Petra Lindqvist — Security Engineer
+# Petra Lindqvist - Security Engineer
 
 ## Now
 Security Engineer at Tailscale (2023–now). Device authorization flows, posture checks, audit logging.
