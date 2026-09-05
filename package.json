@@ -1,7 +1,13 @@
 {
   "name": "hires-md",
   "private": true,
+  "engines": { "node": ">=22.22.0" },
   "scripts": {
+    "check": "node scripts/check.cjs",
+    "test": "node --test test/*.test.cjs",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.cjs",
+    "reindex": "node scripts/reindex.cjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },

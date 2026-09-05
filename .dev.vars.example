@@ -1,0 +1,4 @@
+ADMIN_TOKEN=local-only-change-me
+GITHUB_TOKEN=your-test-repository-token
+RESEND_API_KEY=your-test-sending-key
+MAIL_FROM=verify@your-verified-domain.example

@@ -1,0 +1,43 @@
+name: deploy
+on:
+  push:
+    branches: [main]
+    paths: ['src/**', 'migrations/**', 'package*.json', 'wrangler.jsonc', 'scripts/**', '.github/workflows/deploy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: registry-release
+  cancel-in-progress: false
+  queue: max
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+      - run: npx wrangler d1 migrations apply hires-md --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - run: node scripts/reindex.cjs
+        env:
+          HIRES_ENDPOINT: ${{ secrets.HIRES_ENDPOINT }}
+          HIRES_ADMIN_TOKEN: ${{ secrets.HIRES_ADMIN_TOKEN }}
+      - run: node scripts/smoke.cjs "$HIRES_ENDPOINT"
+        env:
+          HIRES_ENDPOINT: ${{ secrets.HIRES_ENDPOINT }}
