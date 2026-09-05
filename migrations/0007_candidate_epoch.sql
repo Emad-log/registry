@@ -1,0 +1,1 @@
+ALTER TABLE candidates ADD COLUMN min_generation INTEGER NOT NULL DEFAULT 0;

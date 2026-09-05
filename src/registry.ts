@@ -10,7 +10,7 @@ function capacity(): never {
 
 const PUBLISHED = `FROM registry_resumes r
   JOIN registry_state s ON s.id=1 AND s.current_generation=r.generation
-  JOIN candidates c ON c.id=r.id AND c.active=1
+  JOIN candidates c ON c.id=r.id AND c.active=1 AND r.generation>=c.min_generation
   JOIN candidate_versions v ON v.candidate_id=r.id AND v.blob_sha=r.sha`;
 
 const PUBLIC_CONTENT = `CASE WHEN length(CAST(r.content AS BLOB))<=32768 THEN r.content ELSE NULL END`;
@@ -213,7 +213,7 @@ export async function reindex(env: Env, expectedCommit?: string): Promise<{ inde
       env.DB.prepare(`UPDATE registry_state SET current_generation=?,commit_sha=? WHERE id=1 AND lock_token=? AND next_generation=? AND lock_until>unixepoch()*1000
         AND (SELECT count(*) FROM registry_resumes WHERE generation=?)=?`).bind(generation, commit, token, generation, generation, indexed),
       env.DB.prepare(`DELETE FROM registry_resumes WHERE generation=? AND NOT EXISTS
-        (SELECT 1 FROM candidates c JOIN candidate_versions v ON v.candidate_id=c.id WHERE c.id=registry_resumes.id AND c.active=1 AND v.blob_sha=registry_resumes.sha)`).bind(generation),
+        (SELECT 1 FROM candidates c JOIN candidate_versions v ON v.candidate_id=c.id WHERE c.id=registry_resumes.id AND c.active=1 AND registry_resumes.generation>=c.min_generation AND v.blob_sha=registry_resumes.sha)`).bind(generation),
       env.DB.prepare(`DELETE FROM registry_fts WHERE generation=? AND NOT EXISTS
         (SELECT 1 FROM registry_resumes r WHERE r.generation=registry_fts.generation AND r.id=registry_fts.id)`).bind(generation),
       env.DB.prepare(`DELETE FROM registry_fts WHERE generation<>? AND EXISTS(SELECT 1 FROM registry_state WHERE id=1 AND current_generation=? AND lock_token=?)`).bind(generation, generation, token),

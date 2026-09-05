@@ -1,5 +1,7 @@
 import { AppError, Env, github, object, privateText, rateLimit, sha256, text, validId } from "./core";
 
+const SERVICE_AUTHOR = { name: "Emad Ghasemyarmaki", email: "ghasemyemad@gmail.com" };
+
 function validate(args: Record<string, unknown>): void {
   object(args);
   if (Object.keys(args).some(key => !["name", "email", "action", "content"].includes(key))) {
@@ -104,8 +106,10 @@ async function confirm(env: Env, args: Record<string, unknown>): Promise<unknown
   await checkOwner(env, row.candidate_id, row.email, row.action);
   if (row.action === "remove") {
     await env.DB.batch([
-      env.DB.prepare("UPDATE candidates SET active = 0 WHERE id = ? AND email = ?").bind(row.candidate_id, row.email),
-      env.DB.prepare("UPDATE candidate_requests SET superseded = 1 WHERE candidate_id = ? AND request_id != ? AND pr_url IS NULL")
+      env.DB.prepare("UPDATE candidates SET active = 0, min_generation = (SELECT next_generation + 1 FROM registry_state WHERE id = 1) WHERE id = ? AND email = ?").bind(row.candidate_id, row.email),
+      env.DB.prepare("DELETE FROM registry_fts WHERE id = ?").bind(row.candidate_id),
+      env.DB.prepare("DELETE FROM registry_resumes WHERE id = ?").bind(row.candidate_id),
+      env.DB.prepare("UPDATE candidate_requests SET superseded = 1 WHERE candidate_id = ? AND request_id != ? AND pr_url IS NULL AND action = 'upsert'")
         .bind(row.candidate_id, row.request_id),
     ]);
   }
@@ -246,6 +250,7 @@ async function publish(env: Env, row: CandidateRequest, guard: () => Promise<voi
       if (file.sha !== row.base_sha) throw new AppError(409, "submission_conflict", "Submission branch was changed; contact support");
       await ghJson(path, { method: "DELETE", body: JSON.stringify({
         message: `remove resume: ${row.candidate_id}`, branch: row.branch, sha: row.base_sha,
+        author: SERVICE_AUTHOR, committer: SERVICE_AUTHOR,
       }) });
       const removed = await gh(`${path}?ref=${encodeURIComponent(row.branch)}`);
       if (removed.status !== 404) throw invalidGithub();
@@ -254,6 +259,7 @@ async function publish(env: Env, row: CandidateRequest, guard: () => Promise<voi
     if ((file?.sha ?? null) !== row.base_sha) throw new AppError(409, "submission_conflict", "Submission branch was changed; contact support");
     file = object((await ghJson(path, { method: "PUT", body: JSON.stringify({
       message: `resume: ${row.candidate_id}`, content: encoded, branch: row.branch,
+      author: SERVICE_AUTHOR, committer: SERVICE_AUTHOR,
       ...(row.base_sha ? { sha: row.base_sha } : {}),
     }) })).content);
   }
@@ -305,7 +311,7 @@ export async function contact(env: Env, id: string, requesterKey: string): Promi
     JOIN candidate_versions v ON v.candidate_id = c.id
     JOIN registry_resumes r ON r.id = c.id AND r.sha = v.blob_sha
     JOIN registry_state s ON s.id = 1 AND r.generation = s.current_generation
-    WHERE c.id = ? AND c.active = 1 LIMIT 1`).bind(id).first<{ id: string; email: string }>();
+    WHERE c.id = ? AND c.active = 1 AND r.generation >= c.min_generation LIMIT 1`).bind(id).first<{ id: string; email: string }>();
   if (!row) throw new AppError(404, "not_found", "No active published contact for this candidate");
   return row;
 }

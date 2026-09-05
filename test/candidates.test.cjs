@@ -4,6 +4,16 @@ const { setup, reply, blobSha } = require('./candidate-support.cjs');
 const input = { name: 'fixture-candidate', email: 'private@example.test', content: '# Fictional test candidate\nJosé 東京 ✅ 😀' };
 const errorCode = code => error => error.code === code;
 
+test('public service commits use the configured human identity, never candidate email', async () => {
+  const s = setup();
+  const request = await s.submit(input);
+  await s.submit({ request_id: request.request_id, code: s.code() });
+  const put = s.gh.calls.find(c => c.method === 'PUT');
+  assert.deepEqual(put.body.author, { name: 'Emad Ghasemyarmaki', email: 'ghasemyemad@gmail.com' });
+  assert.deepEqual(put.body.committer, put.body.author);
+  assert.notEqual(put.body.author.email, input.email);
+});
+
 test('malformed identifiers and private public payloads are rejected rather than rewritten', async () => {
   const s = setup();
   for (const name of ['Jane Doe', 'Alice', '../alice', '-alice', 'alice-', 'a'.repeat(65), ' a']) {
