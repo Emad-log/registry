@@ -44,21 +44,6 @@ function randomToken(): string {
   return "hm_" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function bearer(request: Request): Promise<string | null> {
-  const h = request.headers.get("authorization") ?? "";
-  return h.startsWith("Bearer ") ? h.slice(7) : null;
-}
-
-async function checkToken(db: D1Database, request: Request): Promise<{ ok: true; label: string } | { ok: false }> {
-  const token = await bearer(request);
-  if (!token) return { ok: false };
-  const row = await db
-    .prepare("SELECT label FROM api_tokens WHERE token = ?")
-    .bind(token)
-    .first<{ label: string }>();
-  return row ? { ok: true, label: row.label } : { ok: false };
-}
-
 function isAdmin(env: Env, request: Request): boolean {
   const h = request.headers.get("authorization") ?? "";
   return h === `Bearer ${env.ADMIN_TOKEN}`;
@@ -322,6 +307,19 @@ const MCP_TOOLS = [
       required: ["id"],
     },
   },
+  {
+    name: "submit",
+    description:
+      "Submit a new resume as markdown. The worker opens a PR on the candidate's behalf. No github account needed. The 'name' becomes the file id (e.g. 'jane-doe' -> resumes/jane-doe.md). Include a 'contact-email:' line in the markdown so recruiters can reach you.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Your name or handle, used as the file id (e.g. 'jane-doe')" },
+          content: { type: "string", description: "Your resume in markdown" },
+        },
+        required: ["name", "content"],
+      },
+  },
 ] as const;
 
 const MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -335,7 +333,7 @@ class RpcError extends Error {
 async function handleMcp(
   env: Env,
   body: { method: string; params?: unknown },
-  tokenLabel: string
+  ip: string
 ): Promise<unknown> {
   switch (body.method) {
     case "initialize": {
@@ -367,9 +365,17 @@ async function handleMcp(
         return textOut(stripEmails(row.content));
       }
       if (name === "contact") {
-        const res = await contact(env, tokenLabel, String(args.id ?? ""));
+        const res = await contact(env, ip, String(args.id ?? ""));
         if (!res.ok) return textOut(res.error, true);
         return textOut(JSON.stringify({ id: res.id, email: res.email }));
+      }
+      if (name === "submit") {
+        const name_ = String(args.name ?? "").trim();
+        const content = String(args.content ?? "").trim();
+        if (!name_ || !content) return textOut("need name and content", true);
+        const res = await submitResume(env, name_, content);
+        if (!res.ok) return textOut(res.error ?? "submit failed", true);
+        return textOut(`Resume submitted. PR: ${res.prUrl}`);
       }
       throw new RpcError(-32602, `Unknown tool: ${name}`);
     }
@@ -388,12 +394,12 @@ type ContactResult =
   | { ok: false; status: number; error: string };
 
 // Used by both the /contact route and the MCP contact tool, so both are rate limited and logged.
-async function contact(env: Env, tokenLabel: string, id: string): Promise<ContactResult> {
+async function contact(env: Env, ip: string, id: string): Promise<ContactResult> {
   const hourAgo = Date.now() - 3600_000;
   const used = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM contact_log WHERE token_label = ? AND at > ?"
   )
-    .bind(tokenLabel, hourAgo)
+    .bind(ip, hourAgo)
     .first<{ n: number }>();
   if ((used?.n ?? 0) >= CONTACT_HOURLY_LIMIT) {
     return { ok: false, status: 429, error: "hourly contact limit reached" };
@@ -401,9 +407,51 @@ async function contact(env: Env, tokenLabel: string, id: string): Promise<Contac
   const email = await lookupEmail(env, id);
   if (!email) return { ok: false, status: 404, error: `no email on file for '${id}'` };
   await env.DB.prepare("INSERT INTO contact_log (token_label, resume_id, at) VALUES (?, ?, ?)")
-    .bind(tokenLabel, id, Date.now())
+    .bind(ip, id, Date.now())
     .run();
   return { ok: true, id, email };
+}
+
+async function submitResume(env: Env, name: string, content: string): Promise<{ ok: boolean; prUrl?: string; error?: string }> {
+  const branch = `resume/${name.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}-${Date.now().toString(36)}`;
+  const path = `resumes/${name.replace(/[^a-z0-9-]/gi, "-").toLowerCase()}.md`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+    Accept: "application/vnd.github+json",
+    "User-Agent": "hires-md",
+  };
+
+  const mainRef = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/git/refs/heads/${env.GITHUB_BRANCH}`, { headers });
+  if (!mainRef.ok) return { ok: false, error: "could not fetch main ref" };
+  const mainSha = ((await mainRef.json()) as { object: { sha: string } }).object.sha;
+
+  const branchRes = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/git/refs`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: mainSha }),
+  });
+  if (!branchRes.ok) return { ok: false, error: "could not create branch" };
+
+  const fileRes = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/contents/${path}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ message: `add resume: ${name}`, content: btoa(content), branch }),
+  });
+  if (!fileRes.ok) return { ok: false, error: "could not write file" };
+
+  const prRes = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/pulls`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      title: `resume: ${name}`,
+      head: branch,
+      base: env.GITHUB_BRANCH,
+      body: `New resume submitted via hires.md MCP submit tool.`,
+    }),
+  });
+  if (!prRes.ok) return { ok: false, error: "could not open PR" };
+  const pr = (await prRes.json()) as { html_url: string };
+  return { ok: true, prUrl: pr.html_url };
 }
 
 export default {
@@ -500,9 +548,8 @@ export default {
       return json({ sent, failed, errors });
     }
 
-    // token-authed API surface
-    const auth = await checkToken(env.DB, request);
-    if (!auth.ok) return json({ error: "unauthorized" }, 401);
+    // Open surface: search, get, and mcp are public. contact is rate-limited by IP.
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
 
     if (request.method === "POST" && path === "/search") {
       const body = (await request.json().catch(() => ({}))) as { query?: string; top_n?: number };
@@ -522,22 +569,20 @@ export default {
 
     if (request.method === "POST" && path === "/contact") {
       const body = (await request.json().catch(() => ({}))) as { id?: string };
-      const res = await contact(env, auth.label, String(body.id ?? ""));
+      const res = await contact(env, ip, String(body.id ?? ""));
       if (!res.ok) return json({ error: res.error }, res.status);
       return json({ id: res.id, email: res.email });
     }
 
     if (path === "/mcp") {
-      // There is no server-initiated stream, so the SSE GET and the session DELETE do not apply.
       if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
       const body = (await request.json().catch(() => null)) as
         | { id?: number | string; method: string; params?: unknown }
         | null;
       if (!body?.method) return json({ error: "bad jsonrpc request" }, 400);
-      // A notification has no id. It gets an empty 202, never a response object.
       if (body.id === undefined || body.id === null) return new Response(null, { status: 202 });
       try {
-        const result = await handleMcp(env, body, auth.label);
+        const result = await handleMcp(env, body, ip);
         return json({ jsonrpc: "2.0", id: body.id, result });
       } catch (e) {
         const code = e instanceof RpcError ? e.code : -32603;
