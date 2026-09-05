@@ -78,8 +78,14 @@ export async function github(env: Env, path: string, init: RequestInit = {}): Pr
   headers.set("User-Agent", "hires-md");
   headers.set("X-GitHub-Api-Version", "2022-11-28");
   try {
-    return await fetch(url.toString(), { ...init, headers, redirect: "error", signal: AbortSignal.timeout(15000) });
-  } catch {
+    const response = await fetch(url.toString(), { ...init, headers, redirect: "manual", signal: AbortSignal.timeout(15000) });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      await response.body?.cancel();
+      throw new AppError(503, "github_unavailable", "GitHub request failed; retry this request later");
+    }
+    return response;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
     throw new AppError(503, "github_unavailable", "GitHub request failed; retry this request later");
   }
 }
