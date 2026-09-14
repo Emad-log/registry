@@ -31,7 +31,7 @@ Cursor, in `~/.cursor/mcp.json`:
 }
 ```
 
-No Authorization header is needed. Use a client that supports Streamable HTTP, not an old SSE-only client. Plain chat apps must support MCP or HTTP tool calls; pasting a URL alone does not give an app those capabilities.
+No Authorization header is needed. Use a client that supports Streamable HTTP, not an old SSE-only client. The endpoint speaks MCP protocol versions 2025-06-18, 2025-03-26 and 2024-11-05, and echoes back whichever of those your client negotiates. Plain chat apps must support MCP or HTTP tool calls; pasting a URL alone does not give an app those capabilities.
 
 ## Add your resume
 
@@ -60,6 +60,8 @@ The service emails a code and returns a `request_id`. Confirm with:
 Only confirmation creates a public GitHub PR. A maintainer reviews and merges it before it appears in search. The response includes a PR link, not a promise that it is already published. Retry the same confirmed request to recover the same result rather than creating another submission.
 
 Write markdown however you like. No frontmatter or resume layout required. Use a lowercase file handle such as `jane-doe`; invalid handles are rejected, not silently changed. Keep private contact information out of the public text. Names, links, employers and everything else you submit in the markdown will be public.
+
+Public text is screened before it reaches GitHub. It must contain no at sign, no `mailto:` link and no em dash (U+2014). The at sign is screened as a contact address, so write social handles as plain URLs such as `github.com/octocat` rather than `@octocat`. Text pasted out of a word processor usually carries em dashes, so check that before submitting. A rejection names the rule it caught.
 
 Submission limits protect the service from spam and unexpected bills. A rate-limit response means wait and retry, not obtain a recruiter token. Verification codes expire after 15 minutes and lock after five wrong guesses. Mail requests are limited per mailbox, per IP and across the service. Resume text is limited to 32 KiB. The initial index has a 100-file guard; a capacity error preserves the previous complete index rather than silently dropping applicants.
 

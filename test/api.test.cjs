@@ -105,4 +105,19 @@ test('read-only MCP methods reject malformed params and notifications cannot exe
   assert.equal(response.status, 400);
   assert.equal(f.calls.length, 0);
 });
+test('MCP version negotiation serves clients on neighbouring protocol revisions', async () => {
+  const f = fixture();
+  const ping = { jsonrpc: '2.0', id: 1, method: 'ping' };
+  for (const version of ['2025-06-18', '2025-03-26', '2024-11-05']) {
+    assert.equal((await f.request(ping, { 'MCP-Protocol-Version': version })).status, 200, version);
+    const handshake = await f.request({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: version, capabilities: {}, clientInfo: { name: 'test', version: '1' } } });
+    assert.equal(handshake.body.result.protocolVersion, version, 'a version this server speaks must be echoed, not overridden');
+  }
+  const unknown = await f.request({ jsonrpc: '2.0', id: 3, method: 'initialize', params: { protocolVersion: '2999-01-01', capabilities: {}, clientInfo: { name: 'test', version: '1' } } });
+  assert.equal(unknown.body.result.protocolVersion, '2025-06-18', 'an unknown request falls back to a supported version so the client can downgrade');
+  const rejected = await f.request(ping, { 'MCP-Protocol-Version': '2999-01-01' });
+  assert.equal(rejected.status, 400);
+  assert.match(rejected.body.message, /2025-06-18/, 'a rejection must name the versions that would work');
+});
+
 module.exports = { fixture };

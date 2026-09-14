@@ -29,7 +29,8 @@ export function text(value: unknown, field: string, max: number): string {
   return value;
 }
 
-export function privateText(value: string): boolean {
+// A submitter cannot repair a rejection that will not say which rule caught the text.
+export function contentIssue(value: string): string | null {
   let decoded = value;
   for (let i = 0; i < 4; i++) {
     decoded = decoded.replace(/&#(x[\da-f]+|\d+);?/gi, (_, code: string) => {
@@ -38,7 +39,14 @@ export function privateText(value: string): boolean {
     }).replace(/&commat;/gi, "@").replace(/&period;/gi, ".");
     decoded = decoded.replace(/%[0-9a-f]{2}/gi, pair => String.fromCharCode(parseInt(pair.slice(1), 16)));
   }
-  return decoded.includes("@") || /mailto:/i.test(decoded) || decoded.includes(String.fromCharCode(0x2014));
+  if (/mailto:/i.test(decoded)) return "a mailto link; remove it and keep contact details private";
+  if (decoded.includes("@")) return "an at sign, which this registry screens as a contact address; write social handles as plain URLs instead";
+  if (decoded.includes(String.fromCharCode(0x2014))) return "an em dash (U+2014); use a plain hyphen or rewrite the sentence";
+  return null;
+}
+
+export function privateText(value: string): boolean {
+  return contentIssue(value) !== null;
 }
 
 export async function rateLimit(env: Env, scope: string, key: string, max: number, windowMs: number): Promise<void> {
