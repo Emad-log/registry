@@ -189,3 +189,17 @@ test('security control: plain and ordinary encoded contact cannot reach public w
   }
   evidence('privacy-control', { attempted: attempts.length, rejectedBeforeMailAndGitHub: attempts.length });
 });
+
+test('a removal supersedes the pending upsert so its stale code stops reporting a live PR', async () => {
+  const s = setup();
+  const upsert = await confirmed(s);
+  assert.equal(upsert.response.status, 'pending_review');
+  assert.equal(s.gh.prs[0].state, 'open');
+  const removal = await confirmed(s, { name: owner.name, email: owner.email, action: 'remove' });
+  assert.equal(removal.response.status, 'removed');
+  assert.equal(removal.response.pr_url, null);
+  assert.equal(s.gh.prs[0].state, 'closed', 'the service closes the withdrawn upsert PR');
+  await assert.rejects(s.submit({ request_id: upsert.request.request_id, code: upsert.code }), codeIs('request_superseded'));
+  const again = await s.submit(owner);
+  assert.notEqual(again.request_id, upsert.request.request_id, 'a fresh identical upsert must not reuse the withdrawn request');
+});
