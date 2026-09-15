@@ -65,3 +65,13 @@ test('public text boundary catches plain and encoded email without rejecting saf
   for (const value of [null, 7, '', ' ', 'bad\u0000']) assert.throws(() => core.text(value, 'content', 10));
   assert.equal(core.text('hello\nworld', 'content', 20), 'hello\nworld');
 });
+
+test('content rejection names the rule that caught the text', () => {
+  const core = load('src/core.ts');
+  assert.equal(core.contentIssue('# Plain resume\nBuilt a compiler'), null);
+  assert.match(core.contentIssue('reach me at alice@example.test'), /at sign/);
+  assert.match(core.contentIssue('social handle @octocat'), /at sign/);
+  assert.match(core.contentIssue('mailto:alice'), /mailto/);
+  assert.match(core.contentIssue('systems ' + String.fromCharCode(0x2014) + ' mostly backend'), /em dash/);
+  assert.equal(core.privateText('# Jose Tokyo resume'), false, 'the boolean screen stays a boolean for callers that only gate');
+});

@@ -1,4 +1,4 @@
-import { AppError, Env, github, object, privateText, rateLimit, sha256, text, validId } from "./core";
+import { AppError, Env, contentIssue, github, object, rateLimit, sha256, text, validId } from "./core";
 
 const SERVICE_AUTHOR = { name: "Emad Ghasemyarmaki", email: "ghasemyemad@gmail.com" };
 
@@ -20,8 +20,10 @@ function validate(args: Record<string, unknown>): void {
     return;
   }
   const content = text(args.content, "content", 32768);
-  if (privateText(content) || /[\uD800-\uDFFF]/u.test(content) || new TextEncoder().encode(content).length > 32768) {
-    throw new AppError(400, "invalid_params", "Public content must be valid UTF-8, at most 32768 bytes, without contact emails or forbidden punctuation");
+  const issue = contentIssue(content);
+  if (issue) throw new AppError(400, "invalid_params", `Public content must not contain ${issue}`);
+  if (/[\uD800-\uDFFF]/u.test(content) || new TextEncoder().encode(content).length > 32768) {
+    throw new AppError(400, "invalid_params", "Public content must be valid UTF-8 of at most 32768 bytes");
   }
 }
 
