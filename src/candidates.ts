@@ -101,8 +101,8 @@ async function confirm(env: Env, args: Record<string, unknown>): Promise<unknown
     ((verified = 1 AND (completed = 1 OR pr_url IS NOT NULL OR created_at > ?)) OR (attempts < 5 AND expires_at > ?)) RETURNING *`)
     .bind(args.request_id, hash, Date.now() - 86400000, Date.now()).first<CandidateRequest>();
   if (!row) throw new AppError(400, "invalid_code", "Invalid or expired verification code");
-  if (row.pr_url || row.completed) return pending(row);
   if (row.superseded) throw new AppError(409, "request_superseded", "A removal superseded this request; start a new request");
+  if (row.pr_url || row.completed) return pending(row);
   await env.DB.prepare("INSERT INTO candidates(id, email, active, created_at) VALUES (?, ?, 1, ?) ON CONFLICT(id) DO NOTHING")
     .bind(row.candidate_id, row.email, Date.now()).run();
   await checkOwner(env, row.candidate_id, row.email, row.action);
@@ -111,7 +111,7 @@ async function confirm(env: Env, args: Record<string, unknown>): Promise<unknown
       env.DB.prepare("UPDATE candidates SET active = 0, min_generation = (SELECT next_generation + 1 FROM registry_state WHERE id = 1) WHERE id = ? AND email = ?").bind(row.candidate_id, row.email),
       env.DB.prepare("DELETE FROM registry_fts WHERE id = ?").bind(row.candidate_id),
       env.DB.prepare("DELETE FROM registry_resumes WHERE id = ?").bind(row.candidate_id),
-      env.DB.prepare("UPDATE candidate_requests SET superseded = 1 WHERE candidate_id = ? AND request_id != ? AND pr_url IS NULL AND action = 'upsert'")
+      env.DB.prepare("UPDATE candidate_requests SET superseded = 1 WHERE candidate_id = ? AND request_id != ? AND action = 'upsert' AND completed = 0")
         .bind(row.candidate_id, row.request_id),
     ]);
   }
@@ -333,9 +333,9 @@ export async function submit(env: Env, args: Record<string, unknown>, _requester
   await env.DB.prepare(`INSERT INTO candidate_requests
     (request_id, candidate_id, email, action, content, code_hash, expires_at, created_at, branch, fingerprint)
     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS
-      (SELECT 1 FROM candidate_requests WHERE fingerprint = ? AND expires_at > ?)`)
+      (SELECT 1 FROM candidate_requests WHERE fingerprint = ? AND expires_at > ? AND superseded = 0)`)
     .bind(requestId, args.name, args.email, args.action ?? "upsert", args.content ?? "", await codeHash(requestId, code), expiresAt, Date.now(), `resume/${crypto.randomUUID()}`, fingerprint, fingerprint, Date.now()).run();
-  const existing = await env.DB.prepare("SELECT request_id, expires_at FROM candidate_requests WHERE fingerprint = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1")
+  const existing = await env.DB.prepare("SELECT request_id, expires_at FROM candidate_requests WHERE fingerprint = ? AND expires_at > ? AND superseded = 0 ORDER BY created_at DESC LIMIT 1")
     .bind(fingerprint, Date.now()).first<{ request_id: string; expires_at: number }>();
   if (existing && existing.request_id !== requestId) return { status: "verification_required", request_id: existing.request_id, expires_at: existing.expires_at };
   try {

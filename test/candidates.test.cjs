@@ -192,7 +192,7 @@ test('verified remove hides immediately during GitHub failure then deletes with 
   const deletion = s.gh.calls.find(c => c.method === 'DELETE' && c.route.startsWith('/contents/'));
   assert.equal(deletion.body.sha, blobSha(input.content));
   assert.equal(s.gh.branches.get(s.gh.prs[1].head.ref).has(`resumes/${input.name}.md`), false);
-  await s.submit({ request_id: request.request_id, code: originalCode });
+  await assert.rejects(s.submit({ request_id: request.request_id, code: originalCode }), errorCode('request_superseded'));
   assert.equal(s.db.row('SELECT active FROM candidates').active, 0);
 });
 
