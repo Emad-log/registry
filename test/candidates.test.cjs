@@ -387,6 +387,20 @@ test('identical approved published content completes unchanged without a new bra
   assert.deepEqual(await s.submit({ request_id: repeat.request_id, code }), result);
 });
 
+test('identical-content upsert on a removed candidate reports removal_pending instead of unchanged', async () => {
+  const s = setup(); const request = await s.submit(input);
+  await s.submit({ request_id: request.request_id, code: s.code() }); s.gh.merge();
+  const removal = await s.submit({ name: input.name, email: input.email, action: 'remove' });
+  await s.submit({ request_id: removal.request_id, code: s.code() });
+  s.gh.prs[1].state = 'closed';
+  assert.equal(s.db.row('SELECT active FROM candidates').active, 0);
+  s.clock.now += 900001;
+  const restore = await s.submit(input);
+  await assert.rejects(s.submit({ request_id: restore.request_id, code: s.code() }), errorCode('removal_pending'));
+  assert.equal(s.db.row('SELECT active FROM candidates').active, 0);
+  assert.equal(s.db.row('SELECT completed FROM candidate_requests WHERE request_id = ?', restore.request_id).completed, 0);
+});
+
 test('initial submission sends a private challenge without any public write', async () => {
   const s = setup(); const result = await s.submit(input);
   assert.equal(s.gh.calls.filter(c => c.method !== 'GET').length, 0);
