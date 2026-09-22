@@ -218,7 +218,10 @@ async function publish(env: Env, row: CandidateRequest, guard: () => Promise<voi
     await env.DB.prepare("UPDATE candidate_requests SET base_commit = ?, base_sha = ? WHERE request_id = ?")
       .bind(row.base_commit, row.base_sha, row.request_id).run();
   }
-  const unchanged = row.action === "upsert" && row.base_sha === await blobHash(row.content);
+  const candidate = await env.DB.prepare("SELECT active FROM candidates WHERE id = ?").bind(row.candidate_id).first<{ active: number }>();
+  // An inactive candidate is never "unchanged": an identical-content upsert must report
+  // removal_pending like any other restore attempt, not a silent no-op that leaves it hidden.
+  const unchanged = row.action === "upsert" && row.base_sha === await blobHash(row.content) && candidate?.active !== 0;
   if ((row.action === "remove" && !row.base_sha) || unchanged) {
     await guard();
     await env.DB.batch([
@@ -227,7 +230,6 @@ async function publish(env: Env, row: CandidateRequest, guard: () => Promise<voi
     ]);
     return pending(row);
   }
-  const candidate = await env.DB.prepare("SELECT active FROM candidates WHERE id = ?").bind(row.candidate_id).first<{ active: number }>();
   if (row.action === "upsert" && candidate?.active === 0) {
     if (row.base_sha) throw new AppError(409, "removal_pending", "Source deletion must be merged before a new upsert can restore this candidate");
     await guard();
