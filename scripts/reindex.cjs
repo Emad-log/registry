@@ -5,7 +5,7 @@ async function main() {
   assert.ok(HIRES_ENDPOINT && HIRES_ADMIN_TOKEN, 'missing reindex configuration');
   if (EXPECTED_COMMIT) assert.match(EXPECTED_COMMIT, /^[a-f0-9]{40}$/);
   const endpoint = new URL('/reindex', HIRES_ENDPOINT);
-  assert.ok(endpoint.protocol === 'https:' || endpoint.hostname === '127.0.0.1', 'HTTPS required');
+  assert.ok(endpoint.protocol === 'https:' || endpoint.hostname === '127.0.0.1' || endpoint.hostname === 'localhost', 'HTTPS required');
   for (let attempt = 0; attempt < 3; attempt++) {
     const response = await fetch(endpoint, { method: 'POST', headers: {
       Authorization: 'Bearer ' + HIRES_ADMIN_TOKEN, 'content-type': 'application/json',

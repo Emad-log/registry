@@ -19,9 +19,9 @@ test('reindex automation fails HTTP and application errors, and verifies the pub
     }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const run = () => new Promise((resolve, reject) => {
+  const run = (host = '127.0.0.1') => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(__dirname, '../scripts/reindex.cjs')], { env: {
-      PATH: process.env.PATH, HIRES_ENDPOINT: `http://127.0.0.1:${server.address().port}`, HIRES_ADMIN_TOKEN: 'fixture-only', EXPECTED_COMMIT: commit,
+      PATH: process.env.PATH, HIRES_ENDPOINT: `http://${host}:${server.address().port}`, HIRES_ADMIN_TOKEN: 'fixture-only', EXPECTED_COMMIT: commit,
     } });
     let output = '';
     child.stdout.on('data', data => { output += data; });
@@ -39,6 +39,9 @@ test('reindex automation fails HTTP and application errors, and verifies the pub
     const passed = await run();
     assert.equal(passed.code, 0, passed.output);
     assert.match(passed.output, /REINDEX_VERIFIED/);
+    const local = await run('localhost');
+    assert.equal(local.code, 0, local.output);
+    assert.match(local.output, /REINDEX_VERIFIED/);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
