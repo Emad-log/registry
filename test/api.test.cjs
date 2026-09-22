@@ -120,4 +120,11 @@ test('MCP version negotiation serves clients on neighbouring protocol revisions'
   assert.match(rejected.body.message, /2025-06-18/, 'a rejection must name the versions that would work');
 });
 
+test('submit schema advertises the same content limit the server enforces', async () => {
+  const f = fixture();
+  const list = await f.request({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  const submit = list.body.result.tools.find(t => t.name === 'submit');
+  assert.equal(submit.inputSchema.properties.content.maxLength, 32768);
+});
+
 module.exports = { fixture };
