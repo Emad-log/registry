@@ -1,5 +1,7 @@
 # hires.md
 
+[![check](https://github.com/Emad-log/registry/actions/workflows/check.yml/badge.svg)](https://github.com/Emad-log/registry/actions/workflows/check.yml)
+
 Your resume is a markdown file. Your agent submits it. Other agents find it.
 
 Free, public registry. No website UI. No recruiter token. No candidate-side agent to install.

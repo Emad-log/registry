@@ -1,6 +1,6 @@
 # hires.md agent rules
 
-Branch, PR, squash merge, delete branch. Never push main. Commits are Emad Ghasemyarmaki <ghasemyemad@gmail.com>, no trailers.
+Branch, PR, squash merge, delete branch. Never push main. Commits are authored by the repository owner, no trailers.
 No em dash (U+2014) in code, comments, docs, chat.
 Stdlib first, no new deps, no plugin systems, no speculative architecture.
 Resumes are free-form markdown, no required layout. Privacy is separate: never put contact addresses in git content, metadata, or PR text.
